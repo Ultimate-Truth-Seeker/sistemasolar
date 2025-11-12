@@ -6,6 +6,7 @@ use crate::uniforms::Uniforms;
 pub enum VertexShader {
     Identity,
     SolarFlare,
+    DisplacePlanarY  { amp: f32, freq: f32, octaves: u32, lacunarity: f32, gain: f32, time_amp: f32 },
 }
 
 #[inline]
@@ -89,6 +90,13 @@ pub fn apply_vertex_shader(v: Vector3, shader: &VertexShader, time: f32) -> Vect
             let n = fbm(p, 4, 2.0, 0.5);
             let flare = (n*2.0 - 1.0) * 0.35; // amplitude in object units
             v + dir * flare
+        },
+        VertexShader::DisplacePlanarY { amp, freq, octaves, lacunarity, gain, time_amp } => {
+            // For rings/planes, displace along +Y using FBM in XZ
+            let p = Vector3::new(v.x * *freq, 0.0, v.z * *freq) + Vector3::new(0.0, 0.0, time * *time_amp);
+            let h = crate::procedural::fbm3(p, *octaves, *lacunarity, *gain); // ~[-1,1]
+            let disp = *amp * h;
+            Vector3::new(v.x, v.y + disp, v.z)
         }
     }
 }

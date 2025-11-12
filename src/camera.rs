@@ -73,21 +73,21 @@ impl Camera {
     /// Process keyboard input to control the camera
     pub fn process_input(&mut self, window: &RaylibHandle) {
         // Rotation controls (yaw)
-        if window.is_key_down(KeyboardKey::KEY_A) {
+        if window.is_key_down(KeyboardKey::KEY_LEFT) {
             self.yaw += self.rotation_speed;
             self.update_eye_position();
         }
-        if window.is_key_down(KeyboardKey::KEY_D) {
+        if window.is_key_down(KeyboardKey::KEY_RIGHT) {
             self.yaw -= self.rotation_speed;
             self.update_eye_position();
         }
 
         // Rotation controls (pitch)
-        if window.is_key_down(KeyboardKey::KEY_W) {
+        if window.is_key_down(KeyboardKey::KEY_UP) {
             self.pitch += self.rotation_speed;
             self.update_eye_position();
         }
-        if window.is_key_down(KeyboardKey::KEY_S) {
+        if window.is_key_down(KeyboardKey::KEY_DOWN) {
             self.pitch -= self.rotation_speed;
             self.update_eye_position();
         }

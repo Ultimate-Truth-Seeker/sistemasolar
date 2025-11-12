@@ -157,31 +157,115 @@ fn main() {
     // --- Scene entities ---
     let mut entities: Vec<Entity> = vec![
         // The ship we will follow
-        Entity {
-            name: "ship",
-            translation: Vector3::new(3.0, 0.0, 0.0),
-            rotation: Vector3::new(0.0, 0.0, 0.0),
-            scale: 1.0,
-            motion: Motion::Static,
-            vertices: ship_vertices.clone(),
-            vshader: VertexShader::Identity,
-            spin: Vector3::new(0.0, 0.0, 0.0),
-            face_tangent: false,
-        },
-
-        Entity {
-            name: "sun",
-            translation: Vector3::new(0.0, 0.0, 0.0),
-            rotation: Vector3::new(0.0, 0.0, 0.0),
-            scale: 1.0,
-            motion: Motion::Orbit { 
-                center: Vector3::new(0.0, 0.0, 0.0), radius: 10.0, angular_speed: 0.8, phase: 0.0 
+        Entity::new(
+            "ship",
+            Vector3::new(0.0, 0.0, 140.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            1.0,
+            Motion::Static,
+            ship_vertices.clone(),
+            VertexShader::Identity,
+            Vector3::new(0.0, 0.0, 0.0),
+            false,
+        ),
+        Entity::new(
+            "sun",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            1.0,
+            Motion::Static,
+            generate_uv_sphere(15.0, 24, 32),
+            VertexShader::SolarFlare,
+            Vector3::new(0.0, 1.0, 0.0),
+            false,
+        ),
+        Entity::new(
+            "earth",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            1.0,
+            Motion::Orbit {
+                center: Vector3::new(0.0, 0.0, 0.0), radius: 40.0, angular_speed: 0.8, phase: 0.0 
             },
-            vertices: generate_uv_sphere(3.0, 24, 32),
-            vshader: VertexShader::SolarFlare,
-            spin: Vector3::new(0.0, 1.0, 0.0),
-            face_tangent: false,
-        },
+            generate_uv_sphere(1.8, 16, 24),
+            VertexShader::Identity,
+            Vector3::new(0.0, 4.0, 0.0),
+            false,
+        ),
+
+        Entity::new(
+            "moon",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.3),
+            1.0,
+            Motion::OrbitAround {
+                parent: "earth",
+                radius: 5.5,
+                angular_speed: 3.5,
+                phase: 0.0,
+            },
+            generate_uv_sphere(0.8, 16, 24),
+            VertexShader::Identity,
+            Vector3::new(0.0, 0.0, 0.0),
+            true,
+        ),
+
+        Entity::new(
+            "mars",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            1.0,
+            Motion::Orbit {
+                center: Vector3::new(0.0, 0.0, 0.0), radius: 60.0, angular_speed: 0.7, phase: 0.0 
+            },
+            generate_uv_sphere(1.2, 16, 24),
+            VertexShader::Identity,
+            Vector3::new(0.0, 2.0, 0.0),
+            false,
+        ),
+
+        Entity::new(
+            "jupyter",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.15),
+            1.0,
+            Motion::Orbit {
+                center: Vector3::new(0.0, 0.0, 0.0), radius: 80.0, angular_speed: 0.6, phase: 0.0 
+            },
+            generate_uv_sphere(7.0, 16, 24),
+            VertexShader::SolarFlare,
+            Vector3::new(0.0, 7.0, 0.0),
+            false,
+        ),
+        Entity::new(
+            "saturn",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.3),
+            1.0,
+            Motion::Orbit {
+                center: Vector3::new(0.0, 0.0, 0.0), radius: 100.0, angular_speed: 0.5, phase: 0.0 
+            },
+            generate_uv_sphere(5.0, 16, 24),
+            VertexShader::SolarFlare,
+            Vector3::new(0.0, 6.0, 0.0),
+            false,
+        ),
+        Entity::new(
+            "saturn_ring", 
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.3), 
+            1.0, 
+            Motion::OrbitAround {
+                parent: "saturn",
+                radius: 0.0,
+                angular_speed: 0.0,
+                phase: 0.0,
+            },
+            generate_ring(6.5, 10.5, 128), 
+            VertexShader::DisplacePlanarY { amp: 0.06, freq: 6.0, octaves: 3, lacunarity: 2.0, gain: 0.55, time_amp: 0.6 },
+            Vector3::new(0.0, 7.0, 0.0), 
+            false,
+        ),
     ];
 
 
@@ -197,10 +281,15 @@ fn main() {
         framebuffer.clear();
         camera.process_input(&window);
 
-        if window.is_key_down(KeyboardKey::KEY_RIGHT) { temp_control += 0.3 * window.get_frame_time(); }
-        if window.is_key_down(KeyboardKey::KEY_LEFT)  { temp_control -= 0.3 * window.get_frame_time(); }
-        if window.is_key_down(KeyboardKey::KEY_UP)    { intensity_control += 0.5 * window.get_frame_time(); }
-        if window.is_key_down(KeyboardKey::KEY_DOWN)  { intensity_control -= 0.5 * window.get_frame_time(); }
+        if window.is_key_down(KeyboardKey::KEY_T) { temp_control += 0.3 * window.get_frame_time(); }
+        if window.is_key_down(KeyboardKey::KEY_G)  { temp_control -= 0.3 * window.get_frame_time(); }
+        if window.is_key_down(KeyboardKey::KEY_Y)    { intensity_control += 0.5 * window.get_frame_time(); }
+        if window.is_key_down(KeyboardKey::KEY_H)  { intensity_control -= 0.5 * window.get_frame_time(); }
+        
+        if let Some(ship) = entities.iter().position(|ent| ent.name == "ship") {
+            let speed = 30.0;
+            entities[ship].process_input(&window, speed, camera.rotation_speed);
+        }
         temp_control = temp_control.clamp(0.0, 1.0);
         intensity_control = intensity_control.clamp(0.2, 2.0);
 
@@ -252,7 +341,7 @@ fn main() {
             }
         }
 
-        // --- Follow camera: lock target to sun position ---
+        // --- Follow camera: lock target to ship position ---
         if let Some(ship) = entities.iter().find(|ent| ent.name == "ship") {
             camera.set_target(ship.translation);
         }
