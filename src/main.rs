@@ -1,12 +1,6 @@
 // main.rs
 #![allow(unused_imports)]
 #![allow(dead_code)]
-#[inline]
-fn rotate_y(v: Vector3, ang: f32) -> Vector3 {
-    let (s, c) = ang.sin_cos();
-    Vector3::new(c*v.x + 0.0*v.y + -s*v.z, v.y, s*v.x + 0.0*v.y + c*v.z)
-}
-
 
 use raylib::prelude::*;
 use std::f32::consts::PI;
@@ -33,7 +27,7 @@ use uniforms::Uniforms;
 use fragment::Fragment;
 use obj::Obj;
 use triangle::triangle;
-use crate::{matrix::*, procedural::*, uniforms::*, shaders::*, skybox::*};
+use crate::{entity::sample_system, matrix::*, procedural::*, shaders::*, skybox::*, uniforms::*};
 
 fn transform(
     vertex: Vector3,
@@ -231,130 +225,25 @@ fn main() {
     let ship_obj = Obj::load("nave.obj").unwrap_or_else(|_| Obj::load("sphere.obj").expect("Failed to load any mesh"));
     let ship_vertices = ship_obj.get_vertex_array();
 
-    let mut temp_control: f32 = 0.5;      // 0 (rojo) … 1 (blanco/azulado)
-    let mut intensity_control: f32 = 1.0; // 1 = normal, >1 más brillante
+    let mut temp_control: f32 = 0.1;      // 0 (rojo) … 1 (blanco/azulado)
+    let mut intensity_control: f32 = 0.5; // 1 = normal, >1 más brillante
 
     // --- Scene entities ---
-    let mut entities: Vec<Entity> = vec![
-        // The ship we will follow
+    let mut entities: Vec<Entity> = sample_system();
+    entities.push(// The ship we will follow
         Entity::new(
             "ship",
-            Vector3::new(0.0, 0.0, 200.0),
+            Vector3::new(0.0, 50.0, 200.0),
             Vector3::new(0.0, 0.0, 0.0),
             1.0,
             Motion::Static,
             ship_vertices.clone(),
             VertexShader::Identity,
-            FragmentShader::Solid { color: Vector3::new(0.8, 0.8, 0.8) },
+            FragmentShader::AlienShip,
             Vector3::new(0.0, 0.0, 0.0),
             false,
         ),
-        Entity::new(
-            "sun",
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.0),
-            1.0,
-            Motion::Static,
-            generate_uv_sphere(15.0, 24, 32),
-            VertexShader::SolarFlare,
-            FragmentShader::Star,
-            Vector3::new(0.0, 1.0, 0.0),
-            false,
-        ),
-        Entity::new(
-            "earth",
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.0),
-            1.0,
-            Motion::Orbit {
-                center: Vector3::new(0.0, 0.0, 0.0), radius: 40.0, angular_speed: 0.8, phase: 0.0 
-            },
-            generate_uv_sphere(1.8, 16, 24),
-            VertexShader::Identity,
-            FragmentShader::Rocky { color: Vector3::new(0.0, 0.0, 1.0) },
-            Vector3::new(0.0, 4.0, 0.0),
-            false,
-        ),
-
-        Entity::new(
-            "moon",
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.3),
-            1.0,
-            Motion::OrbitAround {
-                parent: "earth",
-                radius: 5.5,
-                angular_speed: 3.5,
-                phase: 0.0,
-            },
-            generate_uv_sphere(0.8, 16, 24),
-            VertexShader::Identity,
-            FragmentShader::Rocky { color: Vector3::new(0.8, 0.8, 0.8) },
-            Vector3::new(0.0, 0.0, 0.0),
-            true,
-        ),
-
-        Entity::new(
-            "mars",
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.0),
-            1.0,
-            Motion::Orbit {
-                center: Vector3::new(0.0, 0.0, 0.0), radius: 60.0, angular_speed: 0.7, phase: 0.0 
-            },
-            generate_uv_sphere(1.2, 16, 24),
-            VertexShader::Identity,
-            FragmentShader::Rocky { color: Vector3::new(0.6, 0.2, 0.0) },
-            Vector3::new(0.0, 2.0, 0.0),
-            false,
-        ),
-
-        Entity::new(
-            "jupyter",
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.15),
-            1.0,
-            Motion::Orbit {
-                center: Vector3::new(0.0, 0.0, 0.0), radius: 80.0, angular_speed: 0.6, phase: 0.0 
-            },
-            generate_uv_sphere(7.0, 16, 24),
-            VertexShader::SolarFlare,
-            FragmentShader::Strips,
-            Vector3::new(0.0, 7.0, 0.0),
-            false,
-        ),
-        Entity::new(
-            "saturn",
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.3),
-            1.0,
-            Motion::Orbit {
-                center: Vector3::new(0.0, 0.0, 0.0), radius: 100.0, angular_speed: 0.5, phase: 0.0 
-            },
-            generate_uv_sphere(5.0, 16, 24),
-            VertexShader::SolarFlare,
-            FragmentShader::Solid { color: Vector3::new(0.9, 0.7, 0.1) },
-            Vector3::new(0.0, 6.0, 0.0),
-            false,
-        ),
-        Entity::new(
-            "saturn_ring", 
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.3), 
-            1.0, 
-            Motion::OrbitAround {
-                parent: "saturn",
-                radius: 0.0,
-                angular_speed: 0.0,
-                phase: 0.0,
-            },
-            generate_ring(6.5, 10.5, 128), 
-            VertexShader::DisplacePlanarY { amp: 0.06, freq: 6.0, octaves: 3, lacunarity: 2.0, gain: 0.55, time_amp: 0.6 },
-            FragmentShader::Solid { color: Vector3::new(0.5, 0.4, 0.0) },
-            Vector3::new(0.0, 7.0, 0.0), 
-            false,
-        ),
-    ];
+    );
 
 
     let mut camera = Camera::new(
@@ -439,11 +328,9 @@ fn main() {
 
         let view = camera.get_view_matrix();
 
-        draw_sky_sphere(
-            &mut framebuffer,
-            &skybox,
-            &view,
-        );
+        draw_sky_sphere(&mut framebuffer,&skybox,&view,&viewport, &projection);
+        draw_sky_stars(&mut framebuffer, &skybox, &view, &viewport, &projection);
+        draw_shooting_star(&mut framebuffer, time, window_width, window_height);
 
         // --- Render all entities ---
         for e in &entities {

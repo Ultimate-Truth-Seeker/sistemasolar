@@ -1,6 +1,6 @@
 use raylib::prelude::*;
 
-use crate::{VertexShader, shaders::FragmentShader};
+use crate::{VertexShader, procedural::{generate_ring, generate_uv_sphere}, shaders::FragmentShader};
 
 #[derive(Clone)]
 pub struct Entity {
@@ -244,4 +244,123 @@ pub enum Motion {
     Static,
     Orbit { center: Vector3, radius: f32, angular_speed: f32, phase: f32 }, // world-center orbit
     OrbitAround { parent: &'static str, radius: f32, angular_speed: f32, phase: f32 }, // orbit around entity
+}
+
+pub fn sample_system() -> Vec<Entity> {
+    vec![
+        Entity::new(
+            "sun",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            1.0,
+            Motion::Static,
+            generate_uv_sphere(15.0, 24, 32),
+            VertexShader::SolarFlare,
+            FragmentShader::Star,
+            Vector3::new(0.0, 1.0, 0.0),
+            false,
+        ),
+        Entity::new(
+            "earth",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            1.0,
+            Motion::Orbit {
+                center: Vector3::new(0.0, 0.0, 0.0), radius: 40.0, angular_speed: 0.8, phase: 0.0 
+            },
+            generate_uv_sphere(1.8, 16, 24),
+            VertexShader::Identity,
+            FragmentShader::Rocky { color: Vector3::new(0.0, 0.5, 1.0) },
+            Vector3::new(0.0, 4.0, 0.0),
+            false,
+        ),
+
+        Entity::new(
+            "moon",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.3),
+            1.0,
+            Motion::OrbitAround {
+                parent: "earth",
+                radius: 5.5,
+                angular_speed: 3.5,
+                phase: 0.0,
+            },
+            generate_uv_sphere(0.8, 16, 24),
+            VertexShader::Identity,
+            FragmentShader::Rocky { color: Vector3::new(0.8, 0.8, 0.8) },
+            Vector3::new(0.0, 0.0, 0.0),
+            true,
+        ),
+
+        Entity::new(
+            "mars",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            1.0,
+            Motion::Orbit {
+                center: Vector3::new(0.0, 0.0, 0.0), radius: 60.0, angular_speed: 0.7, phase: 0.0 
+            },
+            generate_uv_sphere(1.2, 16, 24),
+            VertexShader::Identity,
+            FragmentShader::Rocky { color: Vector3::new(0.6, 0.2, 0.0) },
+            Vector3::new(0.0, 2.0, 0.0),
+            false,
+        ),
+
+        Entity::new(
+            "jupyter",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.15),
+            1.0,
+            Motion::Orbit {
+                center: Vector3::new(0.0, 0.0, 0.0), radius: 80.0, angular_speed: 0.6, phase: 0.0 
+            },
+            generate_uv_sphere(7.0, 16, 24),
+            VertexShader::SolarFlare,
+            FragmentShader::Strips {angle: 0.0},
+            Vector3::new(0.0, 7.0, 0.0),
+            false,
+        ),
+        Entity::new(
+            "saturn",
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.3),
+            1.0,
+            Motion::Orbit {
+                center: Vector3::new(0.0, 0.0, 0.0), radius: 100.0, angular_speed: 0.5, phase: 0.0 
+            },
+            generate_uv_sphere(5.0, 16, 24),
+            VertexShader::SolarFlare,
+            FragmentShader::Solid { color: Vector3::new(0.9, 0.7, 0.1) },
+            Vector3::new(0.0, 6.0, 0.0),
+            false,
+        ),
+        Entity::new(
+            "saturn_ring", 
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.3), 
+            1.0, 
+            Motion::OrbitAround {
+                parent: "saturn",
+                radius: 0.0,
+                angular_speed: 0.0,
+                phase: 0.0,
+            },
+            generate_ring(6.5, 10.5, 128), 
+            VertexShader::DisplacePlanarY { amp: 0.06, freq: 6.0, octaves: 3, lacunarity: 2.0, gain: 0.55, time_amp: 0.6 },
+            FragmentShader::Solid { color: Vector3::new(0.5, 0.4, 0.0) },
+            Vector3::new(0.0, 7.0, 0.0), 
+            false,
+        ),
+
+
+        // Orbits
+        Entity::new("orbit_earth", Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0), 1.0, Motion::Static, generate_ring(40.0, 40.1, 128), VertexShader::Identity, FragmentShader::Solid {color: Vector3::new(1.0, 1.0, 1.0)}, Vector3::new(0.0, 0.0, 0.0), false),
+        Entity::new("orbit_moon", Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0), 1.0, Motion::OrbitAround { parent: "earth", radius: 0.0, angular_speed: 0.0, phase: 0.0 }, generate_ring(5.5, 5.6, 128), VertexShader::Identity, FragmentShader::Solid {color: Vector3::new(1.0, 1.0, 1.0)}, Vector3::new(0.0, 0.0, 0.0), false),
+        Entity::new("orbit_mars", Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0), 1.0, Motion::Static, generate_ring(60.0, 60.1, 128), VertexShader::Identity, FragmentShader::Solid {color: Vector3::new(1.0, 1.0, 1.0)}, Vector3::new(0.0, 0.0, 0.0), false),
+        Entity::new("orbit_jupyter", Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0), 1.0, Motion::Static, generate_ring(80.0, 80.1, 128), VertexShader::Identity, FragmentShader::Solid {color: Vector3::new(1.0, 1.0, 1.0)}, Vector3::new(0.0, 0.0, 0.0), false),
+        Entity::new("orbit_saturn", Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0), 1.0, Motion::Static, generate_ring(100.0, 100.1, 128), VertexShader::Identity, FragmentShader::Solid {color: Vector3::new(1.0, 1.0, 1.0)}, Vector3::new(0.0, 0.0, 0.0), false),
+
+    ]
 }

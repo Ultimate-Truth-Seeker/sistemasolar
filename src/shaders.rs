@@ -16,7 +16,8 @@ pub enum FragmentShader {
     Star,
     Solid { color: Vector3 },
     Rocky { color: Vector3 },
-    Strips,
+    Strips { angle: f32 },
+    AlienShip
 }
 
 #[inline]
@@ -162,7 +163,155 @@ pub fn fragment_shader(fragment: &Fragment, u: &Uniforms, shader: &FragmentShade
             base_color * 0.5 + pattern_color * 0.5
 
         },
-        FragmentShader::Rocky { color } => {color.clone()},
-        FragmentShader::Strips => {fragment.color},
+        FragmentShader::Rocky { color } => {
+            let mut p = fragment.obj_position;
+            let len = (p.x*p.x + p.y*p.y + p.z*p.z).sqrt();
+            if len > 0.0 {
+                p = Vector3::new(p.x/len, p.y/len, p.z/len); // dirección en la esfera
+            }
+
+            // Base de roca: fbm de baja frecuencia
+            let base = fbm(p * 4.0, 4, 2.0, 0.5);  // 0..~1
+            let base2 = fbm(p * 12.0, 3, 2.4, 0.55);
+            let rocky = (base*0.7 + base2*0.3).clamp(0.0, 1.0);
+
+            // Color rocoso (marrón/gris)
+            let albedo = Vector3::new(
+              //  0.25 + 0.25*rocky, // R
+                //0.2  + 0.2*rocky,  // G
+                //0.18 + 0.15*rocky, // B
+                color.x + 0.25*rocky,
+                color.y +0.2*rocky,
+                color.z + 0.15*rocky,
+            );
+
+            // Cráteres: patrón de “huecos” oscuros fijos en el objeto
+            // Usamos un ruido de alta frecuencia y lo umbralizamos
+            let crater_noise = fbm(p * 16.0, 3, 2.2, 0.5);
+            let mut crater_mask = (crater_noise - 0.55) * 8.0; // valores por debajo generan hoyos
+            crater_mask = crater_mask.clamp(0.0, 1.0);
+            // invertimos: 1 = superficie, 0 = cráter
+            let crater = 1.0 - crater_mask;
+
+            let crater_dark = 0.35; // qué tan oscuros son los cráteres
+            let color = Vector3::new(
+                albedo.x * (crater_dark + (1.0-crater_dark)*crater),
+                albedo.y * (crater_dark + (1.0-crater_dark)*crater),
+                albedo.z * (crater_dark + (1.0-crater_dark)*crater),
+            );
+
+            // Un toquecito de iluminación básica tipo lambert con el Sol en el origen:
+            let light_dir = Vector3::new(0.0, 0.0, 0.0) - fragment.obj_position;
+            let l_len = (light_dir.x*light_dir.x + light_dir.y*light_dir.y + light_dir.z*light_dir.z).sqrt();
+            let ndotl = if l_len > 0.0 {
+                let l = Vector3::new(light_dir.x/l_len, light_dir.y/l_len, light_dir.z/l_len);
+                let n = p;
+                (n.x*l.x + n.y*l.y + n.z*l.z).max(0.0)
+            } else {
+                1.0
+            };
+
+            let diffuse = 0.65 + 0.35*ndotl;
+
+            Vector3::new(
+                (color.x * diffuse).clamp(0.0, 1.0),
+                (color.y * diffuse).clamp(0.0, 1.0),
+                (color.z * diffuse).clamp(0.0, 1.0),
+            )
+        },
+        FragmentShader::Strips { angle } => {
+            let mut p = fragment.obj_position;
+            let len = (p.x*p.x + p.y*p.y + p.z*p.z).sqrt();
+            if len > 0.0 {
+                p = Vector3::new(p.x/len, p.y/len, p.z/len);
+            }
+
+            // latitud en [-1,1]
+            let lat = p.y;
+
+            // Distorsión de las bandas por ruido (animado)
+            let t = u.time * 0.15;
+            let warp = fbm(
+                Vector3::new(p.x*6.0, p.y*6.0, p.z*6.0 + t),
+                4,
+                2.1,
+                0.5,
+            );
+            let lat_warped = lat + (warp - 0.5) * 0.25; // distorsión suave
+
+            // Periodicidad de bandas: usamos varias “zonas”
+            // stripe = sin(k * lat_warped) → alterna claro/oscuro
+            let k = 14.0; // número de bandas
+            let stripe_val = (k * lat_warped).sin();
+
+            // Mapear a 0..1 y hacer más duras las franjas
+            let bands = (stripe_val * 1.2).tanh(); // transiciones suavizadas pero no tan lisas
+            let bands01 = (bands * 0.5 + 0.5).clamp(0.0, 1.0);
+
+            // Dos colores base tipo Júpiter
+            let band_light = Vector3::new(0.95, 0.9, 0.78);
+            let band_dark  = Vector3::new(0.82, 0.6, 0.45);
+
+            let mut color = Vector3::new(
+                band_dark.x + (band_light.x - band_dark.x) * bands01,
+                band_dark.y + (band_light.y - band_dark.y) * bands01,
+                band_dark.z + (band_light.z - band_dark.z) * bands01,
+            );
+
+            // Añadir turbulencia en “nubes” usando ruido
+            let clouds = fbm(Vector3::new(p.x*10.0 + t*0.7, p.y*18.0, p.z*10.0 - t*0.5), 5, 2.1, 0.5);
+            let clouds_mask = (clouds - 0.4).max(0.0) * 1.8;
+            let clouds_mask = clouds_mask.clamp(0.0, 1.0);
+
+            let cloud_tint = Vector3::new(1.0, 0.98, 0.95);
+            color = Vector3::new(
+                color.x + (cloud_tint.x - color.x) * clouds_mask,
+                color.y + (cloud_tint.y - color.y) * clouds_mask,
+                color.z + (cloud_tint.z - color.z) * clouds_mask,
+            );
+
+            // Opcional: pequeñas manchas (spots) de tormentas, fijas o casi fijas
+            let spots = fbm(Vector3::new(p.x*20.0, p.y*20.0, p.z*20.0), 3, 2.0, 0.5);
+            let mut spots_mask = (spots - 0.75) * 6.0;
+            spots_mask = spots_mask.clamp(0.0, 1.0);
+            let spot_color = Vector3::new(0.8, 0.4, 0.2);
+
+            color = Vector3::new(
+                color.x*(1.0-spots_mask) + spot_color.x*spots_mask,
+                color.y*(1.0-spots_mask) + spot_color.y*spots_mask,
+                color.z*(1.0-spots_mask) + spot_color.z*spots_mask,
+            );
+
+            // Simple iluminación desde el sol en el origen
+            let light_dir = Vector3::new(0.0, 0.0, 0.0) - fragment.obj_position;
+            let l_len = (light_dir.x*light_dir.x + light_dir.y*light_dir.y + light_dir.z*light_dir.z).sqrt();
+            let ndotl = if l_len > 0.0 {
+                let l = Vector3::new(light_dir.x/l_len, light_dir.y/l_len, light_dir.z/l_len);
+                let n = p;
+                (n.x*l.x + n.y*l.y + n.z*l.z).max(0.0)
+            } else { 1.0 };
+
+            let diffuse = 0.8 + 0.2*ndotl;
+
+            Vector3::new(
+                (color.x * diffuse).clamp(0.0, 1.0),
+                (color.y * diffuse).clamp(0.0, 1.0),
+                (color.z * diffuse).clamp(0.0, 1.0),
+            )
+        },
+        FragmentShader::AlienShip => {
+            let mut p = fragment.obj_position;
+            let len = (p.x*p.x + p.y*p.y + p.z*p.z).sqrt();
+            if len > 0.0 {
+                p = Vector3::new(p.x/len, p.y/len, p.z/len);
+            }
+            // latitud en [-1,1]
+            let lat = p.y;
+            if lat >= -0.5 && lat <= 0.27 || lat >= 0.43{
+                Vector3::new(0.7, 0.7, 0.7)
+            } else {
+                Vector3::new(0.0, 1.0, 0.0)
+            }
+        }
     }
 }
