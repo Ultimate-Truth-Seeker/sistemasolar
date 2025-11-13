@@ -9,10 +9,6 @@ Este proyecto es una simulación completa de un **sistema solar 3D**, renderizad
 - 🛰️ **Nave controlable en 3D** con orientación y movimiento realista basado en una base ortonormal.
 - 🔧 **Vertex shaders y fragment shaders personalizables para cada tipo de planeta**.
 
-Incluyo pronto un video demostrativo 👇
-
-> *(demo.gif)*
-
 ---
 
 # 🚀 Controles
@@ -98,19 +94,23 @@ Los planetas usan un sistema de shaders modular:
 src/
 ├─ main.rs            # loop principal, inicialización y control
 ├─ framebuffer.rs     # rasterizador en software, z-buffer, dibujo de pixeles
-├─ matrices.rs        # matrices de transformación, proyección, viewport
+├─ matrix.rs          # matrices de transformación, proyección, viewport
 ├─ entity.rs          # estructura de entidades del sistema solar y nave
-├─ shaders/
+├─ shaders.rs
 │   ├─ vertex/
-│   │   ├─ basic.rs
-│   │   └─ solar_flare.rs
+│   │   ├─ identity
+│   │   └─ solar_flare
 │   └─ fragment/
-│       ├─ solar.rs
-│       ├─ rocky.rs
-│       └─ stripes.rs
+│       ├─ solar
+│       ├─ rocky
+│       └─ stripes
 ├─ skybox.rs          # skybox esférico + estrellas 3D + nebulosas FBM
-├─ noise.rs           # ruido 1D/2D/3D, FBM, hash
-└─ util.rs            # helpers matemáticos y estructuras comunes
+├─ camera.rs
+├─ light.rs
+├─ obj.rs
+├─ procedural.rs      # Generador de arreglos de vertices en ciertas formas
+├─ triangle.rs        # Triangulo para generar los fragmentos al rasterizar
+└─ uniforms.rs        # helpers para el fragment shader
 ```
 
 ---
@@ -126,9 +126,8 @@ La versión *release* es MUY recomendada: el rasterizado en CPU es intensivo.
 ---
 
 # 📹 Video Demo
-Cuando tenga la grabación lista, la embeddearé aquí ✨
 
-> ✨ *Pronto: video del sistema solar en acción*
+![Sistema completo](demo.gif)
 
 ---
 
