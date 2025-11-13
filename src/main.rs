@@ -7,6 +7,7 @@ fn rotate_y(v: Vector3, ang: f32) -> Vector3 {
     Vector3::new(c*v.x + 0.0*v.y + -s*v.z, v.y, s*v.x + 0.0*v.y + c*v.z)
 }
 
+
 use raylib::prelude::*;
 use std::f32::consts::PI;
 use std::time::Instant;
@@ -20,6 +21,7 @@ mod light;
 mod entity;
 mod shaders;
 mod obj;
+mod skybox;
 
 mod uniforms;
 mod procedural;
@@ -31,7 +33,7 @@ use uniforms::Uniforms;
 use fragment::Fragment;
 use obj::Obj;
 use triangle::triangle;
-use crate::{matrix::*, procedural::*, uniforms::*, shaders::*};
+use crate::{matrix::*, procedural::*, uniforms::*, shaders::*, skybox::*};
 
 fn transform(
     vertex: Vector3,
@@ -41,25 +43,36 @@ fn transform(
     view: &Matrix,
     projection: &Matrix,
     viewport: &Matrix,
-) -> Vector3 {
-    let model : Matrix = create_model_matrix(translation, scale, rotation);
+) -> Option<Vector3> {
+    let model: Matrix = create_model_matrix(translation, scale, rotation);
     let vertex4 = Vector4::new(vertex.x, vertex.y, vertex.z, 1.0);
 
     let world_transform = multiply_matrix_vector4(&model, &vertex4);
     let view_transform = multiply_matrix_vector4(view, &world_transform);
     let projection_transform = multiply_matrix_vector4(projection, &view_transform);
 
-    // División por w (NDC)
+    // 1) Rechazar cosas detrás de la cámara / w <= 0
+    if projection_transform.w <= 0.0 {
+        return None;
+    }
+
+    let inv_w = 1.0 / projection_transform.w;
     let ndc = Vector4::new(
-        projection_transform.x / projection_transform.w,
-        projection_transform.y / projection_transform.w,
-        projection_transform.z / projection_transform.w,
-        1.0
+        projection_transform.x * inv_w,
+        projection_transform.y * inv_w,
+        projection_transform.z * inv_w,
+        1.0,
     );
 
-    // Viewport una sola vez (x,y), pero mantenemos depth en NDC [-1,1] para el Z-buffer
+    // 2) Clipping básico en el cubo NDC [-1,1]^3
+    if ndc.x < -1.0 || ndc.x > 1.0 ||
+       ndc.y < -1.0 || ndc.y > 1.0 ||
+       ndc.z < -1.0 {
+        return None;
+    }
+
     let screen = multiply_matrix_vector4(viewport, &ndc);
-    Vector3::new(screen.x, screen.y, ndc.z)
+    Some(Vector3::new(screen.x, screen.y, ndc.z))
 }
 
 fn transform_with_basis(
@@ -72,9 +85,7 @@ fn transform_with_basis(
     view: &Matrix,
     projection: &Matrix,
     viewport: &Matrix,
-) -> Vector3 {
-    // Build a model matrix whose columns are the scaled basis vectors and translation.
-    // Raylib's Matrix is column-major, and multiply_matrix_vector4 assumes that layout.
+) -> Option<Vector3> {
     let sx = scale;
     let r = right * sx;
     let u = up * sx;
@@ -97,15 +108,26 @@ fn transform_with_basis(
     let view_transform = multiply_matrix_vector4(view, &world_transform);
     let projection_transform = multiply_matrix_vector4(projection, &view_transform);
 
+    if projection_transform.w <= 0.0 {
+        return None;
+    }
+
+    let inv_w = 1.0 / projection_transform.w;
     let ndc = Vector4::new(
-        projection_transform.x / projection_transform.w,
-        projection_transform.y / projection_transform.w,
-        projection_transform.z / projection_transform.w,
+        projection_transform.x * inv_w,
+        projection_transform.y * inv_w,
+        projection_transform.z * inv_w,
         1.0,
     );
 
+    if ndc.x < -1.0 || ndc.x > 1.0 ||
+       ndc.y < -1.0 || ndc.y > 1.0 ||
+       ndc.z < -1.0  {
+        return None;
+    }
+
     let screen = multiply_matrix_vector4(viewport, &ndc);
-    Vector3::new(screen.x, screen.y, ndc.z)
+    Some(Vector3::new(screen.x, screen.y, ndc.z))
 }
 
 pub fn render(
@@ -116,6 +138,7 @@ pub fn render(
     basis: Option<(Vector3, Vector3, Vector3)>, // (right, up, forward)
     vertex_array: &[Vector3],
     vshader: &VertexShader,
+    fshader: &FragmentShader,
     view: &Matrix,
     projection: &Matrix,
     viewport: &Matrix,
@@ -129,14 +152,14 @@ pub fn render(
     let mut obj_vertices_after_vs = Vec::with_capacity(vertex_array.len());
     for vertex in vertex_array {
         let v_obj = apply_vertex_shader(*vertex, vshader, time);
-        obj_vertices_after_vs.push(v_obj);
-
+        
         let transformed = if let Some((right, up, forward)) = basis {
             transform_with_basis(v_obj, translation, scale, right, up, forward, view, projection, viewport)
         } else {
             transform(v_obj, translation, scale, rotation, view, projection, viewport)
         };
-
+        
+        obj_vertices_after_vs.push(v_obj);
         transformed_vertices.push(transformed);
     }
 
@@ -144,16 +167,20 @@ pub fn render(
     let mut triangles = Vec::new();
     let mut obj_tris = Vec::new();
     for i in (0..transformed_vertices.len()).step_by(3) {
-        if i + 2 < transformed_vertices.len() {
-            triangles.push([
-                transformed_vertices[i].clone(),
-                transformed_vertices[i + 1].clone(),
-                transformed_vertices[i + 2].clone(),
-            ]);
+        if i + 2 >= transformed_vertices.len() {
+            break;
+        }
+
+        if let (Some(v0), Some(v1), Some(v2)) = (
+            transformed_vertices[i],
+            transformed_vertices[i + 1],
+            transformed_vertices[i + 2],
+        ) {
+            triangles.push([v0, v1, v2]);
             obj_tris.push([
-                obj_vertices_after_vs[i].clone(),
-                obj_vertices_after_vs[i + 1].clone(),
-                obj_vertices_after_vs[i + 2].clone(),
+                obj_vertices_after_vs[i],
+                obj_vertices_after_vs[i + 1],
+                obj_vertices_after_vs[i + 2],
             ]);
         }
     }
@@ -173,7 +200,7 @@ pub fn render(
 
     // Fragment Processing Stage
     for fragment in fragments {
-        let final_rgb = fragment_shader(&fragment, &uniforms);
+        let final_rgb = fragment_shader(&fragment, &uniforms, &fshader);
         let out = vec3_to_color(final_rgb);
         framebuffer.set_current_color(out);
         framebuffer.set_pixel(
@@ -218,6 +245,7 @@ fn main() {
             Motion::Static,
             ship_vertices.clone(),
             VertexShader::Identity,
+            FragmentShader::Solid { color: Vector3::new(0.8, 0.8, 0.8) },
             Vector3::new(0.0, 0.0, 0.0),
             false,
         ),
@@ -229,6 +257,7 @@ fn main() {
             Motion::Static,
             generate_uv_sphere(15.0, 24, 32),
             VertexShader::SolarFlare,
+            FragmentShader::Star,
             Vector3::new(0.0, 1.0, 0.0),
             false,
         ),
@@ -242,6 +271,7 @@ fn main() {
             },
             generate_uv_sphere(1.8, 16, 24),
             VertexShader::Identity,
+            FragmentShader::Rocky { color: Vector3::new(0.0, 0.0, 1.0) },
             Vector3::new(0.0, 4.0, 0.0),
             false,
         ),
@@ -259,6 +289,7 @@ fn main() {
             },
             generate_uv_sphere(0.8, 16, 24),
             VertexShader::Identity,
+            FragmentShader::Rocky { color: Vector3::new(0.8, 0.8, 0.8) },
             Vector3::new(0.0, 0.0, 0.0),
             true,
         ),
@@ -273,6 +304,7 @@ fn main() {
             },
             generate_uv_sphere(1.2, 16, 24),
             VertexShader::Identity,
+            FragmentShader::Rocky { color: Vector3::new(0.6, 0.2, 0.0) },
             Vector3::new(0.0, 2.0, 0.0),
             false,
         ),
@@ -287,6 +319,7 @@ fn main() {
             },
             generate_uv_sphere(7.0, 16, 24),
             VertexShader::SolarFlare,
+            FragmentShader::Strips,
             Vector3::new(0.0, 7.0, 0.0),
             false,
         ),
@@ -300,6 +333,7 @@ fn main() {
             },
             generate_uv_sphere(5.0, 16, 24),
             VertexShader::SolarFlare,
+            FragmentShader::Solid { color: Vector3::new(0.9, 0.7, 0.1) },
             Vector3::new(0.0, 6.0, 0.0),
             false,
         ),
@@ -316,6 +350,7 @@ fn main() {
             },
             generate_ring(6.5, 10.5, 128), 
             VertexShader::DisplacePlanarY { amp: 0.06, freq: 6.0, octaves: 3, lacunarity: 2.0, gain: 0.55, time_amp: 0.6 },
+            FragmentShader::Solid { color: Vector3::new(0.5, 0.4, 0.0) },
             Vector3::new(0.0, 7.0, 0.0), 
             false,
         ),
@@ -325,8 +360,9 @@ fn main() {
     let mut camera = Camera::new(
         Vector3::new(0.0, 5.0, 30.0),
         Vector3::new(0.0, 0.0, 0.0),
-
     );
+
+    let skybox = Skybox::new();
 
     let start_time = Instant::now();
 
@@ -394,13 +430,20 @@ fn main() {
         if let Some(ship) = entities.iter().position(|ent| ent.name == "ship") {
             let speed = 30.0;
             let base = entities[ship].process_input(&window, speed, 0.5);
-            
+            if window.is_key_down(KeyboardKey::KEY_F) { camera.zoom_out(); }
+            if window.is_key_down(KeyboardKey::KEY_R) { camera.zoom_in(); }
             camera.follow_ship(entities[ship].translation, base.1, base.0);
             //camera.follow_ship(Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0));
             
         }
 
         let view = camera.get_view_matrix();
+
+        draw_sky_sphere(
+            &mut framebuffer,
+            &skybox,
+            &view,
+        );
 
         // --- Render all entities ---
         for e in &entities {
@@ -440,6 +483,7 @@ fn main() {
                 basis,
                 &e.vertices,
                 &e.vshader,
+                &e.fshader,
                 &view,
                 &projection,
                 &viewport,

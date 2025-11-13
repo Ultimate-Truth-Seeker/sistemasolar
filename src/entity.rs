@@ -1,6 +1,6 @@
 use raylib::prelude::*;
 
-use crate::VertexShader;
+use crate::{VertexShader, shaders::FragmentShader};
 
 #[derive(Clone)]
 pub struct Entity {
@@ -17,6 +17,7 @@ pub struct Entity {
     pub motion: Motion,
     pub vertices: Vec<Vector3>,
     pub vshader: VertexShader,
+    pub fshader: FragmentShader,
     pub spin: Vector3,            // angular velocity (rad/s) around each local axis
     pub face_tangent: bool,       // if true, add tangent-facing yaw from orbital motion      // if true, add tangent-facing yaw from orbital motion
 }
@@ -45,6 +46,7 @@ impl Entity {
         motion: Motion,
         vertices: Vec<Vector3>,
         vshader: VertexShader,
+        fshader: FragmentShader,
         spin: Vector3,            // angular velocity (rad/s) around each local axis
         face_tangent: bool,
     ) -> Self {
@@ -95,6 +97,7 @@ impl Entity {
             motion,
             vertices,
             vshader,
+            fshader,
             spin,
             face_tangent,
         }

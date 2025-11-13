@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use raylib::prelude::*;
 use crate::fragment::Fragment;
 use crate::uniforms::Uniforms;
@@ -7,6 +9,14 @@ pub enum VertexShader {
     Identity,
     SolarFlare,
     DisplacePlanarY  { amp: f32, freq: f32, octaves: u32, lacunarity: f32, gain: f32, time_amp: f32 },
+}
+
+#[derive(Clone)]
+pub enum FragmentShader {
+    Star,
+    Solid { color: Vector3 },
+    Rocky { color: Vector3 },
+    Strips,
 }
 
 #[inline]
@@ -101,35 +111,58 @@ pub fn apply_vertex_shader(v: Vector3, shader: &VertexShader, time: f32) -> Vect
     }
 }
 
-pub fn fragment_shader(fragment: &Fragment, u: &Uniforms) -> Vector3 {
-    // Use object-space direction for stable texturing on the sphere surface
-    let mut dir = fragment.obj_position;
-    let len = (dir.x*dir.x + dir.y*dir.y + dir.z*dir.z).sqrt();
-    if len > 0.0 { dir = Vector3::new(dir.x/len, dir.y/len, dir.z/len); }
+pub fn fragment_shader(fragment: &Fragment, u: &Uniforms, shader: &FragmentShader) -> Vector3 {
+    match shader {
+        FragmentShader::Star => {
+            // Use object-space direction for stable texturing on the sphere surface
+            let mut dir = fragment.obj_position;
+            let len = (dir.x*dir.x + dir.y*dir.y + dir.z*dir.z).sqrt();
+            if len > 0.0 { dir = Vector3::new(dir.x/len, dir.y/len, dir.z/len); }
 
-    // FBM turbulence driven by object-space, time-cycled
-    let tloop = (u.time % 8.0) / 8.0;
-    let p3 = Vector3::new(dir.x*3.0, dir.y*3.0, tloop*8.0);
-    let turb = fbm(p3, 5, 2.0, 0.55);
+            // FBM turbulence driven by object-space, time-cycled
+            let tloop = (u.time % 8.0) / 8.0;
+            let p3 = Vector3::new(dir.x*3.0, dir.y*3.0, tloop*8.0);
+            let turb = fbm(p3, 5, 2.0, 0.55);
 
-    // Core intensity based on how close to the disc center it projects (approx with dir.z)
-    // dir.z ~ facing viewer if camera looks down -Z; use abs to be camera-agnostic
-    let facing = dir.z.abs();
-    let base_core = facing.clamp(0.0, 1.0);
+            // Core intensity based on how close to the disc center it projects (approx with dir.z)
+            // dir.z ~ facing viewer if camera looks down -Z; use abs to be camera-agnostic
+            let facing = dir.z.abs();
+            let base_core = facing.clamp(0.0, 1.0);
 
-    // User controls: temp in [0,1], intensity scaler ~ [0,2]
-    let intensity = ((base_core * 0.7 + turb * 0.6) * u.intensity).clamp(0.0, 1.0);
+            // User controls: temp in [0,1], intensity scaler ~ [0,2]
+            let intensity = ((base_core * 0.7 + turb * 0.6) * u.intensity).clamp(0.0, 1.0);
 
-    // Temperature affects gradient selection
-    let color_base = temperature_to_rgb(((intensity + u.temp*0.8)*0.7).clamp(0.0,1.0));
+            // Temperature affects gradient selection
+            let color_base = temperature_to_rgb(((intensity + u.temp*0.8)*0.7).clamp(0.0,1.0));
 
-    // Emission spikes add energetic flicker
-    let spikes = (value_noise3(Vector3::new(dir.x*10.0 + u.time*1.7, dir.y*10.0 - u.time*1.3, u.time*0.5))*2.0-1.0).abs();
-    let emission = (0.6*intensity + 0.8*spikes).clamp(0.0, 1.5);
+            // Emission spikes add energetic flicker
+            let spikes = (value_noise3(Vector3::new(dir.x*10.0 + u.time*1.7, dir.y*10.0 - u.time*1.3, u.time*0.5))*2.0-1.0).abs();
+            let emission = (0.6*intensity + 0.8*spikes).clamp(0.0, 1.5);
 
-    Vector3::new(
-        (color_base.x * emission).clamp(0.0, 1.0),
-        (color_base.y * emission).clamp(0.0, 1.0),
-        (color_base.z * emission).clamp(0.0, 1.0),
-    )
+            Vector3::new(
+                (color_base.x * emission).clamp(0.0, 1.0),
+                (color_base.y * emission).clamp(0.0, 1.0),
+                (color_base.z * emission).clamp(0.0, 1.0),
+            )
+        },
+        FragmentShader::Solid { color } => {
+            let pos = fragment.position;
+            let base_color = color.clone();
+            let time = u.time;
+
+            let angle = pos.x.atan2(pos.z);// + time;
+            let hue = (angle / 2.0 * PI) % 1.0;
+
+            let r = (hue * 5.0).sin().abs();
+            let g = (hue * 5.0).sin().abs(); 
+            let b = (hue * 5.0).sin().abs();
+
+            let pattern_color = Vector3::new(r, g, b);
+
+            base_color * 0.5 + pattern_color * 0.5
+
+        },
+        FragmentShader::Rocky { color } => {color.clone()},
+        FragmentShader::Strips => {fragment.color},
+    }
 }

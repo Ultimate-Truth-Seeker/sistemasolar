@@ -10,6 +10,8 @@ pub struct Camera {
     pub eye: Vector3,      // Posición de la cámara en mundo
     pub target: Vector3,   // Punto al que mira (en este caso, la nave)
     pub up: Vector3,       // Up en mundo (normalmente el up de la nave)
+    pub right: Vector3,
+    pub forward: Vector3,
 
     /// Dirección del offset en el sistema local de la nave: (right, up, back)
     /// Por ejemplo: (0, 0.5, 1.0) = un poco arriba y detrás de la nave.
@@ -51,6 +53,8 @@ impl Camera {
             eye: initial_eye,
             target: initial_target,
             up,
+            right,
+            forward,
             offset_dir_local,
             distance,
             zoom_speed: 0.5,
@@ -78,7 +82,7 @@ impl Camera {
             u = u / u.length();
         }
 
-        // forward = normalize(right × up) (ajusta el signo si tu convención es la inversa)
+        // forward = normalize(right × up)
         let mut f = r.cross(u);
         if f.length() == 0.0 {
             f = Vector3::new(0.0, 0.0, 1.0);
@@ -107,6 +111,8 @@ impl Camera {
 
         self.eye = ship_pos + world_offset;
         self.up = u;
+        self.right = r;
+        self.forward = f;
     }
 
     /// Zoom in: acercar cámara a la nave (reduce distance).
