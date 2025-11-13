@@ -62,11 +62,58 @@ fn transform(
     Vector3::new(screen.x, screen.y, ndc.z)
 }
 
+fn transform_with_basis(
+    vertex: Vector3,
+    translation: Vector3,
+    scale: f32,
+    right: Vector3,
+    up: Vector3,
+    forward: Vector3,
+    view: &Matrix,
+    projection: &Matrix,
+    viewport: &Matrix,
+) -> Vector3 {
+    // Build a model matrix whose columns are the scaled basis vectors and translation.
+    // Raylib's Matrix is column-major, and multiply_matrix_vector4 assumes that layout.
+    let sx = scale;
+    let r = right * sx;
+    let u = up * sx;
+    let f = forward * sx;
+
+    let model = Matrix {
+        // Column 0: right
+        m0: r.x, m1: r.y, m2: r.z, m3: 0.0,
+        // Column 1: up
+        m4: u.x, m5: u.y, m6: u.z, m7: 0.0,
+        // Column 2: forward
+        m8: f.x, m9: f.y, m10: f.z, m11: 0.0,
+        // Column 3: translation
+        m12: translation.x, m13: translation.y, m14: translation.z, m15: 1.0,
+    };
+
+    let vertex4 = Vector4::new(vertex.x, vertex.y, vertex.z, 1.0);
+
+    let world_transform = multiply_matrix_vector4(&model, &vertex4);
+    let view_transform = multiply_matrix_vector4(view, &world_transform);
+    let projection_transform = multiply_matrix_vector4(projection, &view_transform);
+
+    let ndc = Vector4::new(
+        projection_transform.x / projection_transform.w,
+        projection_transform.y / projection_transform.w,
+        projection_transform.z / projection_transform.w,
+        1.0,
+    );
+
+    let screen = multiply_matrix_vector4(viewport, &ndc);
+    Vector3::new(screen.x, screen.y, ndc.z)
+}
+
 pub fn render(
     framebuffer: &mut Framebuffer,
     translation: Vector3,
     scale: f32,
     rotation: Vector3,
+    basis: Option<(Vector3, Vector3, Vector3)>, // (right, up, forward)
     vertex_array: &[Vector3],
     vshader: &VertexShader,
     view: &Matrix,
@@ -83,7 +130,13 @@ pub fn render(
     for vertex in vertex_array {
         let v_obj = apply_vertex_shader(*vertex, vshader, time);
         obj_vertices_after_vs.push(v_obj);
-        let transformed = transform(v_obj, translation, scale, rotation, view, projection, viewport);
+
+        let transformed = if let Some((right, up, forward)) = basis {
+            transform_with_basis(v_obj, translation, scale, right, up, forward, view, projection, viewport)
+        } else {
+            transform(v_obj, translation, scale, rotation, view, projection, viewport)
+        };
+
         transformed_vertices.push(transformed);
     }
 
@@ -159,7 +212,7 @@ fn main() {
         // The ship we will follow
         Entity::new(
             "ship",
-            Vector3::new(0.0, 0.0, 140.0),
+            Vector3::new(0.0, 0.0, 200.0),
             Vector3::new(0.0, 0.0, 0.0),
             1.0,
             Motion::Static,
@@ -270,26 +323,22 @@ fn main() {
 
 
     let mut camera = Camera::new(
-        Vector3::new(0.0, 0.0, 30.0),
+        Vector3::new(0.0, 5.0, 30.0),
         Vector3::new(0.0, 0.0, 0.0),
-        Vector3::new(0.0, 1.0, 0.0),
+
     );
 
     let start_time = Instant::now();
 
     while !window.window_should_close() {
         framebuffer.clear();
-        camera.process_input(&window);
+        //camera.process_input(&window);
 
         if window.is_key_down(KeyboardKey::KEY_T) { temp_control += 0.3 * window.get_frame_time(); }
         if window.is_key_down(KeyboardKey::KEY_G)  { temp_control -= 0.3 * window.get_frame_time(); }
         if window.is_key_down(KeyboardKey::KEY_Y)    { intensity_control += 0.5 * window.get_frame_time(); }
         if window.is_key_down(KeyboardKey::KEY_H)  { intensity_control -= 0.5 * window.get_frame_time(); }
         
-        if let Some(ship) = entities.iter().position(|ent| ent.name == "ship") {
-            let speed = 30.0;
-            entities[ship].process_input(&window, speed, camera.rotation_speed);
-        }
         temp_control = temp_control.clamp(0.0, 1.0);
         intensity_control = intensity_control.clamp(0.2, 2.0);
 
@@ -342,8 +391,13 @@ fn main() {
         }
 
         // --- Follow camera: lock target to ship position ---
-        if let Some(ship) = entities.iter().find(|ent| ent.name == "ship") {
-            camera.set_target(ship.translation);
+        if let Some(ship) = entities.iter().position(|ent| ent.name == "ship") {
+            let speed = 30.0;
+            let base = entities[ship].process_input(&window, speed, 0.5);
+            
+            camera.follow_ship(entities[ship].translation, base.1, base.0);
+            //camera.follow_ship(Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0));
+            
         }
 
         let view = camera.get_view_matrix();
@@ -372,11 +426,18 @@ fn main() {
             rot.y += e.spin.y * time;
             rot.z += e.spin.z * time;
 
+            let basis = if e.name == "ship" {
+                Some((e.right, e.up, e.forward))
+            } else {
+                None
+            };
+
             render(
                 &mut framebuffer,
                 e.translation,
                 e.scale,
                 rot,
+                basis,
                 &e.vertices,
                 &e.vshader,
                 &view,
@@ -386,7 +447,6 @@ fn main() {
                 resolution,
                 temp_control,
                 intensity_control,
-
             );
         }
 

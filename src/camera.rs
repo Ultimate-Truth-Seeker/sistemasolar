@@ -2,161 +2,128 @@
 
 use raylib::prelude::*;
 use crate::matrix::create_view_matrix;
-use std::f32::consts::PI;
 
+/// Cámara sencilla que se “pega” a la nave.
+/// No tiene yaw/pitch/roll propios: solo mantiene un offset relativo
+/// respecto al plano local de la nave y lo traduce a coordenadas de mundo.
 pub struct Camera {
-    // Camera position/orientation
-    pub eye: Vector3,        // Camera position
-    pub target: Vector3,     // Point the camera is looking at
-    pub up: Vector3,         // Up vector
+    pub eye: Vector3,      // Posición de la cámara en mundo
+    pub target: Vector3,   // Punto al que mira (en este caso, la nave)
+    pub up: Vector3,       // Up en mundo (normalmente el up de la nave)
 
-    // Orbit camera parameters
-    pub yaw: f32,            // Rotation around Y axis (left/right)
-    pub pitch: f32,          // Rotation around X axis (up/down)
-    pub distance: f32,       // Distance from target
+    /// Dirección del offset en el sistema local de la nave: (right, up, back)
+    /// Por ejemplo: (0, 0.5, 1.0) = un poco arriba y detrás de la nave.
+    pub offset_dir_local: Vector3,
 
-    // Movement speed
-    pub rotation_speed: f32,
+    /// Distancia de la cámara a la nave (escala del offset_dir_local).
+    pub distance: f32,
+
     pub zoom_speed: f32,
-    pub pan_speed: f32,
 }
 
 impl Camera {
-    pub fn new(eye: Vector3, target: Vector3, up: Vector3) -> Self {
-        // Calculate initial yaw and pitch from eye and target
-        let direction = Vector3::new(
-            eye.x - target.x,
-            eye.y - target.y,
-            eye.z - target.z,
-        );
+    /// Crea una cámara dada una posición inicial y un target.
+    /// El offset local se inicializa proyectando la posición relativa sobre
+    /// una base “genérica” (right=(1,0,0), up=(0,1,0), forward=(0,0,1)).
+    pub fn new(initial_eye: Vector3, initial_target: Vector3) -> Self {
+        let up = Vector3::new(0.0, 1.0, 0.0);
 
-        let distance = (direction.x * direction.x + direction.y * direction.y + direction.z * direction.z).sqrt();
-        let pitch = (direction.y / distance).asin();
-        let yaw = direction.z.atan2(direction.x);
+        let offset = initial_eye - initial_target;
+        let distance = offset.length().max(0.001);
+
+        // Base genérica para inicializar la dirección local del offset
+        let right = Vector3::new(1.0, 0.0, 0.0);
+        let up_basis = Vector3::new(0.0, 1.0, 0.0);
+        let forward = Vector3::new(0.0, 0.0, 1.0);
+
+        let rel_x = offset.dot(right);
+        let rel_y = offset.dot(up_basis);
+        let rel_z = -offset.dot(forward);
+
+        let mut offset_dir_local = Vector3::new(rel_x, rel_y, rel_z);
+        if offset_dir_local.length() > 0.0 {
+            offset_dir_local = offset_dir_local / offset_dir_local.length();
+        } else {
+            offset_dir_local = Vector3::new(0.0, 0.0, 1.0);
+        }
 
         Camera {
-            eye,
-            target,
+            eye: initial_eye,
+            target: initial_target,
             up,
-            yaw,
-            pitch,
+            offset_dir_local,
             distance,
-            rotation_speed: 0.05,
             zoom_speed: 0.5,
-            pan_speed: 0.1,
         }
     }
 
-    /// Update camera eye position based on yaw, pitch, and distance
-    fn update_eye_position(&mut self) {
-        // Clamp pitch to avoid gimbal lock
-        self.pitch = self.pitch.clamp(-PI / 2.0 + 0.1, PI / 2.0 - 0.1);
+    /// Actualiza eye/target/up a partir de la orientación de la nave.
+    /// ship_right y ship_up vienen en coordenadas de mundo, calculados por la nave.
+    /// El eje forward se deduce como forward = normalize(right × up).
+    pub fn follow_ship(&mut self, ship_pos: Vector3, ship_right: Vector3, ship_up: Vector3) {
+        self.target = ship_pos;
 
-        // Calculate camera position using spherical coordinates
-        // x = distance * cos(pitch) * cos(yaw)
-        // y = distance * sin(pitch)
-        // z = distance * cos(pitch) * sin(yaw)
-        self.eye.x = self.target.x + self.distance * self.pitch.cos() * self.yaw.cos();
-        self.eye.y = self.target.y + self.distance * self.pitch.sin();
-        self.eye.z = self.target.z + self.distance * self.pitch.cos() * self.yaw.sin();
-    }
+        // Ortonormalizar base de la nave
+        let mut r = ship_right;
+        let mut u = ship_up;
 
-    /// Get the view matrix for this camera
-    pub fn get_view_matrix(&self) -> Matrix {
-        create_view_matrix(self.eye, self.target, self.up)
-    }
-    pub fn set_target(&mut self, new_target: Vector3) {
-        self.target = new_target;
-        self.update_eye_position();
-    }
-
-    /// Process keyboard input to control the camera
-    pub fn process_input(&mut self, window: &RaylibHandle) {
-        // Rotation controls (yaw)
-        if window.is_key_down(KeyboardKey::KEY_LEFT) {
-            self.yaw += self.rotation_speed;
-            self.update_eye_position();
-        }
-        if window.is_key_down(KeyboardKey::KEY_RIGHT) {
-            self.yaw -= self.rotation_speed;
-            self.update_eye_position();
-        }
-
-        // Rotation controls (pitch)
-        if window.is_key_down(KeyboardKey::KEY_UP) {
-            self.pitch += self.rotation_speed;
-            self.update_eye_position();
-        }
-        if window.is_key_down(KeyboardKey::KEY_DOWN) {
-            self.pitch -= self.rotation_speed;
-            self.update_eye_position();
-        }
-
-        // Zoom controls (distance from target) - arrow keys
-        if window.is_key_down(KeyboardKey::KEY_R) {
-            self.distance -= self.zoom_speed;
-            if self.distance < 0.5 {
-                self.distance = 0.5; // Prevent camera from going too close
-            }
-            self.update_eye_position();
-        }
-        if window.is_key_down(KeyboardKey::KEY_F) {
-            self.distance += self.zoom_speed;
-            self.update_eye_position();
-        }
-
-        // Pan controls (move target/center point)
-        // Calculate right and forward vectors for panning
-        let forward = Vector3::new(
-            self.target.x - self.eye.x,
-            0.0, // Keep on horizontal plane
-            self.target.z - self.eye.z,
-        );
-        let forward_len = (forward.x * forward.x + forward.z * forward.z).sqrt();
-        let forward_normalized = if forward_len > 0.0 {
-            Vector3::new(forward.x / forward_len, 0.0, forward.z / forward_len)
+        if r.length() == 0.0 {
+            r = Vector3::new(1.0, 0.0, 0.0);
         } else {
-            Vector3::new(0.0, 0.0, 1.0)
+            r = r / r.length();
+        }
+        if u.length() == 0.0 {
+            u = Vector3::new(0.0, 1.0, 0.0);
+        } else {
+            u = u / u.length();
+        }
+
+        // forward = normalize(right × up) (ajusta el signo si tu convención es la inversa)
+        let mut f = r.cross(u);
+        if f.length() == 0.0 {
+            f = Vector3::new(0.0, 0.0, 1.0);
+        } else {
+            f = f / f.length();
+        }
+
+        // Dirección local del offset en base de la nave (right, up, back)
+        let dir = {
+            let mut d = self.offset_dir_local;
+            if d.length() > 0.0 {
+                d = d / d.length();
+            }
+            d
         };
 
-        let right = Vector3::new(
-            forward_normalized.z,
-            0.0,
-            -forward_normalized.x,
+        // Escalar por distancia actual
+        let scaled = dir * self.distance;
+
+        // Interpretar offset_local en la base (right, up, -forward)
+        let world_offset = Vector3::new(
+            r.x * scaled.x + u.x * scaled.y - f.x * scaled.z,
+            r.y * scaled.x + u.y * scaled.y - f.y * scaled.z,
+            r.z * scaled.x + u.z * scaled.y - f.z * scaled.z,
         );
 
-        // Q/E keys for horizontal panning
-        if window.is_key_down(KeyboardKey::KEY_Q) {
-            self.target.x -= right.x * self.pan_speed;
-            self.target.z -= right.z * self.pan_speed;
-            self.update_eye_position();
-        }
-        if window.is_key_down(KeyboardKey::KEY_E) {
-            self.target.x += right.x * self.pan_speed;
-            self.target.z += right.z * self.pan_speed;
-            self.update_eye_position();
-        }
+        self.eye = ship_pos + world_offset;
+        self.up = u;
+    }
 
-        // Left/Right arrow keys for horizontal panning
-        if window.is_key_down(KeyboardKey::KEY_LEFT) {
-            self.target.x -= right.x * self.pan_speed;
-            self.target.z -= right.z * self.pan_speed;
-            self.update_eye_position();
+    /// Zoom in: acercar cámara a la nave (reduce distance).
+    pub fn zoom_in(&mut self) {
+        self.distance -= self.zoom_speed;
+        if self.distance < 0.5 {
+            self.distance = 0.5;
         }
-        if window.is_key_down(KeyboardKey::KEY_RIGHT) {
-            self.target.x += right.x * self.pan_speed;
-            self.target.z += right.z * self.pan_speed;
-            self.update_eye_position();
-        }
+    }
 
-        // Vertical panning
-        if window.is_key_down(KeyboardKey::KEY_R) {
-            self.target.y += self.pan_speed;
-            self.update_eye_position();
-        }
-        if window.is_key_down(KeyboardKey::KEY_F) {
-            self.target.y -= self.pan_speed;
-            self.update_eye_position();
-        }
+    /// Zoom out: alejar cámara de la nave (incrementa distance).
+    pub fn zoom_out(&mut self) {
+        self.distance += self.zoom_speed;
+    }
+
+    /// View matrix para el rasterizador.
+    pub fn get_view_matrix(&self) -> Matrix {
+        create_view_matrix(self.eye, self.target, self.up)
     }
 }
